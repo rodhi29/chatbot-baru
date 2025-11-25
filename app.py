@@ -1,42 +1,73 @@
 import streamlit as st
 import os
 from google import genai
+from google.genai import types
 
-# Konfigurasi Halaman Web
-st.set_page_config(page_title="Gemini Chatbot Online", layout="wide")
-st.title("chatbot online")
+# --- 1. Konfigurasi Halaman Web Streamlit ---
+st.set_page_config(
+    page_title="Gemini Chatbot Online", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+st.title("💬 Chatbot Pintar Bertenaga Gemini")
+st.caption("Dibuat menggunakan Streamlit dan Google Gemini API")
 
-# Dapatkan Kunci API dari variabel lingkungan (ini penting untuk deployment)
-# Anda perlu mengatur variabel lingkungan GOOGLE_API_KEY
-try:
-    client = genai.Client()
-except Exception:
-    st.error("Kunci API Gemini tidak ditemukan. Harap atur GOOGLE_API_KEY.")
-    st.stop()
+# --- 2. Inisialisasi Klien Gemini (Hanya Sekali) ---
+# Memastikan Klien API (Koneksi) hanya dibuat sekali per sesi.
+# Kunci API dibaca dari environment variable GOOGLE_API_KEY
+if "client" not in st.session_state:
+    try:
+        # Mencoba membuat klien. Jika GOOGLE_API_KEY tidak diatur, ini akan gagal.
+        st.session_state.client = genai.Client()
+    except Exception as e:
+        st.error("⚠️ Kesalahan API: Kunci API Gemini (GOOGLE_API_KEY) tidak ditemukan.")
+        st.stop() # Hentikan aplikasi jika API key tidak ada.
 
-
-# Inisialisasi sesi chat
+# --- 3. Inisialisasi Sesi Chat (Hanya Sekali) ---
+# Memastikan Sesi Chat dibuat hanya sekali per sesi pengguna.
 if "chat_session" not in st.session_state:
-    st.session_state.chat_session = client.chats.create(model="gemini-2.5-flash")
+    # Menggunakan model gemini-2.5-flash untuk performa cepat
+    st.session_state.chat_session = st.session_state.client.chats.create(
+        model="gemini-2.5-flash"
+    )
 
-# Tampilkan riwayat pesan
+# --- 4. Fungsi Utama: Menampilkan dan Memproses Chat ---
+
+# Menampilkan riwayat pesan yang sudah ada
 for message in st.session_state.chat_session.get_history():
-    # Asumsi role 'user' adalah pengguna, dan 'model' adalah bot
-    role = "user" if message.role == "user" else "assistant"
-    with st.chat_message(role):
+    # Menentukan peran untuk tampilan (user atau assistant)
+    role_display = "user" if message.role == "user" else "assistant"
+    with st.chat_message(role_display):
         st.markdown(message.text)
 
 # Input pengguna baru
 if prompt := st.chat_input("Tanyakan sesuatu..."):
-    # Tampilkan pesan pengguna di antarmuka
+    # Tampilkan prompt pengguna segera
     with st.chat_message("user"):
         st.markdown(prompt)
 
     # Kirim prompt ke Gemini dan tampilkan respons
-    with st.spinner("Bot sedang berpikir..."):
-        try:
+    try:
+        with st.spinner("🤖 Bot sedang berpikir..."):
+            # Mengirim pesan ke sesi chat yang sudah disimpan
             response = st.session_state.chat_session.send_message(prompt)
+            
+            # Tampilkan respons dari model
             with st.chat_message("assistant"):
                 st.markdown(response.text)
-        except Exception as e:
-            st.error(f"Terjadi kesalahan: {e}")
+                
+    except Exception as e:
+        # Menangani kesalahan jika API gagal mengirim/menerima
+        st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
+
+
+# --- 5. Informasi Samping (Opsional) ---
+with st.sidebar:
+    st.subheader("Petunjuk Deployment")
+    st.info(
+        "Pastikan Anda telah mengatur 'Secrets' di Streamlit Cloud dengan kunci: "
+        "\n\n**`GOOGLE_API_KEY`**"
+    )
+    st.markdown("Model yang digunakan: `gemini-2.5-flash`")
+
+# --- End of app.py ---
