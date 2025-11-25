@@ -67,16 +67,3 @@ if prompt := st.chat_input("Tanyakan sesuatu..."):
     except Exception as e:
         # Menangani kesalahan jika API gagal mengirim/menerima
         st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
-
-
-# --- 5. Informasi Samping (Sidebar Opsional) ---
-with st.sidebar:
-    st.subheader("Petunjuk Deployment")
-    st.info(
-        "Pastikan Anda telah mengatur 'Secrets' di Streamlit Cloud dengan kunci: "
-        "\n\n**`GOOGLE_API_KEY`**"
-    )
-    st.markdown("---")
-    st.markdown("Model yang digunakan: **`gemini-2.5-flash`** (Cepat & Hemat)")
-
-# --- Akhir app.py ---
