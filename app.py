@@ -5,76 +5,104 @@ from google.genai import types
 
 # --- 1. Konfigurasi Halaman Web Streamlit ---
 st.set_page_config(
-    page_title="Gemini Chatbot Interaktif", 
+    page_title="Teman Bicara Cerdas (TBC)", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
-st.title("💬 Chatbot Interaktif dengan Edit & Hapus")
+st.title("💬 Teman Bicara Cerdas (TBC)")
+st.caption("Didukung oleh Google Gemini 2.5 Flash")
 
-# --- 2. Inisialisasi Klien Gemini (Hanya Sekali per Sesi) ---
+# --- 2. Inisialisasi Klien Gemini & Konfigurasi Sistem ---
+
+# Tentukan System Instruction untuk kepribadian yang manusiawi
+SYSTEM_INSTRUCTION_PROMPT = (
+    "Anda adalah 'Teman Bicara Cerdas' (TBC). Anda adalah asisten AI yang ramah, santai, "
+    "dan suportif. Selalu gunakan bahasa sehari-hari yang sopan (misalnya: 'Halo!', 'Tentu saja!', "
+    "'Gimana kabarnya?'). Jangan pernah memberikan jawaban yang terlalu kaku atau formal seperti kamus. "
+    "Gunakan emoji yang relevan untuk menambahkan kesan bersahabat dan personal. "
+    "Tanggapi pertanyaan dengan cepat, tapi jangan ragu mengakui jika Anda tidak tahu sesuatu."
+)
+
 if "client" not in st.session_state:
     try:
+        # Mencoba membuat klien. Kunci API diambil dari environment variable (Secrets)
         st.session_state.client = genai.Client()
     except Exception as e:
-        st.error("⚠️ Kesalahan Inisialisasi: Kunci API Gemini (GOOGLE_API_KEY) tidak ditemukan.")
+        st.error("⚠️ Kesalahan Inisialisasi: Kunci API Gemini (GOOGLE_API_KEY) tidak ditemukan di Secrets.")
         st.warning("Silakan periksa pengaturan 'Secrets' di Streamlit Cloud Anda.")
         st.stop()
 
 # --- 3. Inisialisasi Riwayat Pesan Lokal ---
-# Riwayat akan disimpan dalam list Python untuk memudahkan manipulasi
+# Riwayat akan disimpan dalam list Python untuk memudahkan manipulasi Edit/Hapus
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- 4. Fungsi-Fungsi Baru untuk Manipulasi Chat ---
-
-### FITUR BARU: HAPUS & EDIT ###
+# --- 4. Fungsi-Fungsi Manipulasi Chat (Edit & Hapus) ---
 
 def rebuild_chat_session():
     """Membangun kembali sesi chat Gemini dengan riwayat pesan yang tersisa."""
-    # Hapus sesi lama
-    del st.session_state.chat_session
+    
+    # Objek konfigurasi dengan System Instruction
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION_PROMPT
+    )
     
     # Buat sesi baru
-    new_chat = st.session_state.client.chats.create(model="gemini-2.5-flash")
+    new_chat = st.session_state.client.chats.create(
+        model="gemini-2.5-flash", 
+        config=config
+    )
     
     # Isi sesi baru dengan riwayat pesan yang tersisa di st.session_state.messages
     contents = []
     for msg in st.session_state.messages:
-        # Pastikan hanya pesan 'user' yang dimasukkan kembali, karena Gemini akan merespon ulang
+        # Hanya masukkan pesan 'user' ke dalam riwayat baru, model akan merespon ulang secara berurutan
         if msg["role"] == "user":
             contents.append(
                 types.Content(
                     role="user", 
-                    parts=[types.Part.from_text(msg["text"])]
+                    # SOLUSI TYPEERROR: Gunakan inisialisasi eksplisit untuk Part
+                    parts=[types.Part(text=msg["text"])] 
                 )
             )
-            
-    # Kirim semua riwayat sebagai satu batch (kecuali pesan terakhir, yang akan dikirim terpisah)
-    if contents:
-        new_chat.send_message(contents)
-        
+        # Jika itu pesan 'assistant', masukkan juga agar riwayat kronologis tetap utuh
+        elif msg["role"] == "assistant":
+            contents.append(
+                types.Content(
+                    role="model", 
+                    parts=[types.Part(text=msg["text"])]
+                )
+            )
+
+    # Menggunakan metode private untuk sinkronisasi riwayat
+    # Ini penting agar model tahu konteksnya tanpa harus memanggil send_message() untuk setiap pesan lama
+    new_chat._history = contents
+    
     st.session_state.chat_session = new_chat
     
     # Menghentikan skrip untuk memaksa render ulang antarmuka
     st.rerun() 
 
+# Panggil rebuild_chat_session() pertama kali saat aplikasi dimulai
+if "chat_session" not in st.session_state:
+    rebuild_chat_session()
+
+
 def delete_message(index):
     """Menghapus pesan pengguna dan respon model yang terkait."""
     
-    # Hapus pesan pengguna (index) dan pesan model setelahnya (index + 1)
-    if index < len(st.session_state.messages):
-        # Hapus pesan pengguna
-        st.session_state.messages.pop(index)
-        
-        # Hapus pesan balasan dari model yang terkait (jika ada dan merupakan balasan)
-        if index < len(st.session_state.messages) and st.session_state.messages[index]["role"] == "assistant":
-             st.session_state.messages.pop(index)
-             
-        # Bangun ulang sesi chat Gemini setelah penghapusan
-        rebuild_chat_session()
+    # Hapus pesan pengguna pada index
+    st.session_state.messages.pop(index)
+    
+    # Hapus pesan balasan dari model yang terkait (asumsi balasan adalah index berikutnya)
+    if index < len(st.session_state.messages) and st.session_state.messages[index]["role"] == "assistant":
+         st.session_state.messages.pop(index)
+         
+    # Bangun ulang sesi chat Gemini
+    rebuild_chat_session()
         
 def edit_message(index, new_text):
-    """Mengedit pesan pengguna, lalu membangun kembali sesi chat."""
+    """Mengedit pesan pengguna dan meminta model merespons ulang."""
     
     # Perbarui teks pesan pengguna
     st.session_state.messages[index]["text"] = new_text
@@ -85,21 +113,13 @@ def edit_message(index, new_text):
         
     # Bangun ulang sesi chat Gemini setelah pengeditan
     rebuild_chat_session()
-    
-### --- END FITUR BARU --- ###
 
-# --- 5. Inisialisasi Sesi Chat Gemini (Jika belum ada) ---
-if "chat_session" not in st.session_state:
-    st.session_state.chat_session = st.session_state.client.chats.create(
-        model="gemini-2.5-flash"
-    )
 
-# --- 6. Menampilkan Riwayat Pesan dan Tombol Edit/Hapus ---
+# --- 5. Menampilkan Riwayat Pesan dan Tombol Edit/Hapus ---
 
 # Kita iterasi melalui pesan lokal yang sudah kita simpan
 for i, msg in enumerate(st.session_state.messages):
     
-    # Gunakan container untuk menempatkan tombol di samping pesan
     chat_container = st.container()
 
     with chat_container:
@@ -132,14 +152,15 @@ for i, msg in enumerate(st.session_state.messages):
                 # Pesan dari bot, tidak perlu tombol edit/hapus
                 st.markdown(msg["text"])
 
-# --- 7. Form Edit Pesan (Hanya ditampilkan jika mode edit aktif) ---
-if "editing_index" in st.session_state:
+# --- 6. Form Edit Pesan (Hanya ditampilkan jika mode edit aktif) ---
+if "editing_index" in st.session_state and st.session_state.editing_index >= 0:
     edit_index = st.session_state.editing_index
     current_text = st.session_state.messages[edit_index]["text"]
     
-    st.subheader(f"Edit Pesan ke-{edit_index + 1}")
+    st.subheader(f"✏️ Edit Pesan ke-{edit_index + 1}")
     
     with st.form(key=f"edit_form_{edit_index}"):
+        # Text area dengan nilai pesan saat ini
         new_text = st.text_area("Teks Baru:", value=current_text, key="edit_text_area")
         
         col_ok, col_cancel = st.columns([1, 10])
@@ -155,7 +176,7 @@ if "editing_index" in st.session_state:
                 del st.session_state.editing_index
                 st.rerun()
 
-# --- 8. Penanganan Input Chat Baru ---
+# --- 7. Penanganan Input Chat Baru ---
 if prompt := st.chat_input("Tanyakan sesuatu..."):
     
     # Tambahkan prompt pengguna ke riwayat lokal
@@ -167,7 +188,7 @@ if prompt := st.chat_input("Tanyakan sesuatu..."):
 
     # Kirim prompt ke Gemini dan tampilkan respons
     try:
-        with st.spinner("🤖 Bot sedang berpikir..."):
+        with st.spinner("🤖 TBC sedang merenung..."):
             # Mengirim pesan ke sesi chat yang sudah disimpan
             response = st.session_state.chat_session.send_message(prompt)
             
@@ -182,18 +203,19 @@ if prompt := st.chat_input("Tanyakan sesuatu..."):
                 st.markdown(response_text)
                 
     except Exception as e:
-        # Menangani kesalahan jika API gagal mengirim/menerima
         st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
         # Hapus pesan pengguna terakhir jika terjadi error
-        st.session_state.messages.pop() 
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            st.session_state.messages.pop() 
 
 
-# --- 9. Informasi Samping (Sidebar Opsional) ---
+# --- 8. Informasi Samping (Sidebar Opsional) ---
 with st.sidebar:
     st.subheader("Petunjuk Interaksi")
     st.info(
-        "Tombol ❌ akan menghapus pesan Anda dan balasan bot, lalu memulai ulang percakapan dari pesan sebelumnya."
-        "\n\nTombol ✏️ akan memunculkan kotak edit. Setelah disimpan, bot akan merespons pesan yang diedit."
+        "TBC memiliki kepribadian yang ramah dan santai. "
+        "Tombol ❌ akan menghapus pesan Anda dan balasan bot, lalu memulai ulang percakapan."
+        "\n\nTombol ✏️ akan memunculkan kotak edit. Setelah disimpan, TBC akan merespons pesan yang diedit."
     )
     st.markdown("---")
     st.markdown("Model: **`gemini-2.5-flash`**")
