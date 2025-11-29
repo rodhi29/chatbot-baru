@@ -46,8 +46,11 @@ def rebuild_chat_session():
         system_instruction=SYSTEM_INSTRUCTION_PROMPT
     )
     
-    # Hapus sesi lama dan buat sesi baru
-    del st.session_state.chat_session
+    # **SOLUSI AttributeError:** Hapus sesi lama HANYA JIKA ADA
+    if "chat_session" in st.session_state:
+        del st.session_state.chat_session
+        
+    # Buat sesi baru
     new_chat = st.session_state.client.chats.create(
         model="gemini-2.5-flash", 
         config=config
@@ -61,7 +64,6 @@ def rebuild_chat_session():
             contents.append(
                 types.Content(
                     role="user", 
-                    # SOLUSI TYPEERROR: Gunakan inisialisasi eksplisit untuk Part
                     parts=[types.Part(text=msg["text"])] 
                 )
             )
@@ -84,6 +86,7 @@ def rebuild_chat_session():
 
 # Panggil rebuild_chat_session() pertama kali saat aplikasi dimulai
 if "chat_session" not in st.session_state:
+    # Memastikan semua inisialisasi dilakukan melalui rebuild_chat_session()
     rebuild_chat_session()
 
 
@@ -119,7 +122,6 @@ def edit_message(index, new_text):
 
 # --- 5. Menampilkan Riwayat Pesan dan Tombol Edit/Hapus ---
 
-# Kita iterasi melalui pesan lokal yang sudah kita simpan
 for i, msg in enumerate(st.session_state.messages):
     
     chat_container = st.container()
@@ -129,10 +131,8 @@ for i, msg in enumerate(st.session_state.messages):
         
         with st.chat_message(role_display):
             
-            # Jika itu pesan pengguna, tampilkan tombol Edit dan Hapus
             if msg["role"] == "user":
                 
-                # Gunakan kolom untuk menempatkan tombol di sebelah pesan
                 col1, col2, col3 = st.columns([10, 1, 1])
                 
                 with col1:
@@ -142,13 +142,11 @@ for i, msg in enumerate(st.session_state.messages):
                     st.button("❌", key=f"del_{i}", help="Hapus pesan ini", on_click=delete_message, args=(i,))
 
                 with col3:
-                    # Tombol Edit (menggunakan toggle untuk menampilkan input teks)
                     if st.button("✏️", key=f"edit_btn_{i}", help="Edit pesan ini"):
                         st.session_state.editing_index = i
                         st.rerun() 
                         
             else:
-                # Pesan dari bot
                 st.markdown(msg["text"])
 
 # --- 6. Form Edit Pesan (Hanya ditampilkan jika mode edit aktif) ---
@@ -177,62 +175,49 @@ if "editing_index" in st.session_state and st.session_state.editing_index >= 0:
 # --- 7. Penanganan Input Chat Baru ---
 if prompt := st.chat_input("Tanyakan sesuatu..."):
     
-    # Tambahkan prompt pengguna ke riwayat lokal
     st.session_state.messages.append({"role": "user", "text": prompt})
     
-    # Tampilkan prompt pengguna segera
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Kirim prompt ke Gemini dan tampilkan respons
     try:
         with st.spinner("🤖 TBC sedang merenung..."):
             response = st.session_state.chat_session.send_message(prompt)
             response_text = response.parts[0].text
             
-            # Tambahkan respons model ke riwayat lokal
             st.session_state.messages.append({"role": "assistant", "text": response_text})
             
-            # Tampilkan respons dari model
             with st.chat_message("assistant"):
                 st.markdown(response_text)
                 
     except Exception as e:
         st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
-        # Hapus pesan pengguna terakhir jika terjadi error pengiriman
         if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
             st.session_state.messages.pop() 
 
 # --- 8. Blok Pengiriman Ulang Otomatis Setelah Edit (SOLUSI RESPONS) ---
 if "resend_last_message" in st.session_state and st.session_state.resend_last_message:
     
-    # Matikan flag agar tidak terjadi loop
     st.session_state.resend_last_message = False 
     
-    # Pesan terakhir di riwayat lokal adalah pesan yang baru saja diedit/dikoreksi
     last_user_message = st.session_state.messages[-1]["text"]
     
     try:
         with st.spinner("🤖 TBC sedang memproses ulang pesan yang diedit..."):
-            # Mengirim pesan terakhir ke sesi chat yang sudah disimpan
             response = st.session_state.chat_session.send_message(last_user_message)
             
             response_text = response.parts[0].text
             
-            # Tambahkan respons model ke riwayat lokal
             st.session_state.messages.append({"role": "assistant", "text": response_text})
             
-            # Tampilkan respons dari model di antarmuka dan RERUN untuk render
             with st.chat_message("assistant"):
                 st.markdown(response_text)
                 
     except Exception as e:
         st.error(f"Terjadi kesalahan saat mengirim pesan yang diedit ke Gemini: {e}")
-        # Hapus pesan pengguna terakhir jika terjadi error pengiriman
         if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
             st.session_state.messages.pop()
     
-    # PENTING: Rerun untuk memastikan semua elemen antarmuka diperbarui setelah respons baru.
     st.rerun()
 
 # --- 9. Informasi Samping (Sidebar Opsional) ---
