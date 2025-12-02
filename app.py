@@ -2,9 +2,7 @@ import streamlit as st
 import os
 from google import genai
 from google.genai import types
-import base64
-# import openai # DIHAPUS: Pustaka OpenAI untuk generate gambar
-from streamlit.components.v1 import html # PENTING: Untuk memasukkan JS STT
+import base64 # Untuk mengelola gambar
 
 # --- 1. Konfigurasi Halaman Web Streamlit ---
 st.set_page_config(
@@ -13,9 +11,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 st.title("💬 Teman Bicara Cerdas (TBC)")
-st.caption("Didukung oleh Google Gemini 2.5 Flash (Multimodal) & Speech-to-Text 🎤")
+st.caption("Didukung oleh Google Gemini 2.5 Flash (Multimodal)")
 
-# --- 2. Inisialisasi Klien Gemini ---
+# --- 2. Inisialisasi Klien Gemini & Konfigurasi Sistem ---
 
 SYSTEM_INSTRUCTION_PROMPT = (
     "Anda adalah 'Teman Bicara Cerdas' (TBC). Anda adalah asisten AI yang ramah, santai, "
@@ -24,32 +22,25 @@ SYSTEM_INSTRUCTION_PROMPT = (
     "Gunakan emoji yang relevan untuk menambahkan kesan bersahabat dan personal. "
     "Tanggapi pertanyaan dengan cepat, tapi jangan ragu mengakui jika Anda tidak tahu sesuatu."
     "Jika ada gambar yang diunggah, coba analisis gambar tersebut dan berikan tanggapan yang relevan."
-    # LOGIKA GENERATE GAMBAR DIHAPUS DARI SYSTEM INSTRUCTION
 )
 
-# Inisialisasi Gemini Client
-if "gemini_client" not in st.session_state:
+if "client" not in st.session_state:
     try:
-        # st.secrets["GOOGLE_API_KEY"] diasumsikan sudah ada di secrets
-        st.session_state.gemini_client = genai.Client()
+        st.session_state.client = genai.Client()
     except Exception as e:
-        st.error("⚠️ Kesalahan Inisialisasi Gemini: Kunci API Gemini (GOOGLE_API_KEY) tidak ditemukan di Secrets.")
-        st.warning("Silakan periksa pengaturan 'Secrets' Anda.")
+        st.error("⚠️ Kesalahan Inisialisasi: Kunci API Gemini (GOOGLE_API_KEY) tidak ditemukan di Secrets.")
+        st.warning("Silakan periksa pengaturan 'Secrets' di Streamlit Cloud Anda.")
         st.stop()
-
-# Klien OpenAI Dihapus
 
 # --- 3. Inisialisasi Riwayat Pesan Lokal ---
 # Riwayat akan menyimpan {'role': ..., 'text': ..., 'image_data': ...}
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- Fungsi Helper untuk Gambar Upload ---
+# --- Fungsi Helper untuk Gambar ---
 def get_image_as_base64(uploaded_file):
     """Mengubah uploaded_file Streamlit menjadi string base64."""
     if uploaded_file is not None:
-        # Mengatur ulang file pointer ke awal sebelum membaca
-        uploaded_file.seek(0)
         return base64.b64encode(uploaded_file.read()).decode('utf-8')
     return None
 
@@ -57,101 +48,6 @@ def display_image_from_base64(base64_string, caption=""):
     """Menampilkan gambar dari string base64."""
     if base64_string:
         st.image(f"data:image/jpeg;base64,{base64_string}", caption=caption, use_column_width=True)
-
-# --- Fungsi Helper untuk Generate Gambar DIHAPUS ---
-
-# --- Fungsi Speech-to-Text (Komponen Kustom) ---
-def stt_component():
-    """Membuat tombol mikrofon yang menggunakan Web Speech API dan mengembalikan teks ke Streamlit."""
-    
-    # Ambil teks dari session state jika sudah ada
-    initial_text = st.session_state.get('stt_text', '')
-
-    # MENGGANTI F-STRING DENGAN MULTI-LINE STRING BIASA UNTUK MENGHINDARI POTENSI MASALAH TYPEERROR PADA LINGKUNGAN TERTENTU.
-    html_code = """
-    <script>
-        const stt_button = document.getElementById('stt-mic-button');
-        const stt_result = document.getElementById('stt-result');
-
-        // Cek apakah Web Speech API didukung
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            stt_button.innerHTML = '🎤 STT Tidak Didukung';
-            stt_button.disabled = true;
-            return;
-        }
-
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false; // Hanya sekali rekam
-        recognition.lang = 'id-ID'; // Bahasa Indonesia
-
-        let isRecording = false;
-
-        stt_button.onclick = () => {
-            if (isRecording) {
-                recognition.stop();
-                isRecording = false;
-                stt_button.innerHTML = '🎤 Mulai Bicara';
-                stt_button.style.backgroundColor = '#4CAF50';
-            } else {
-                recognition.start();
-                isRecording = true;
-                stt_button.innerHTML = '🔴 Sedang Merekam...';
-                stt_button.style.backgroundColor = '#FF0000';
-            }
-        };
-
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            // Kirim hasil transcript kembali ke Streamlit
-            if (window.parent) {
-                window.parent.postMessage({
-                    streamlit: {
-                        isStreamlit: true,
-                        type: "SET_VALUE",
-                        value: transcript,
-                        id: "stt_text",
-                    }
-                }, "*");
-            }
-            stt_button.innerHTML = '🎤 Mulai Bicara';
-            stt_button.style.backgroundColor = '#4CAF50';
-            isRecording = false;
-        };
-
-        recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            stt_button.innerHTML = '🎤 Error! Coba Lagi';
-            stt_button.style.backgroundColor = '#FF9800';
-            isRecording = false;
-        };
-        
-        recognition.onend = () => {
-            if (isRecording) {
-                isRecording = false;
-                stt_button.innerHTML = '🎤 Mulai Bicara';
-                stt_button.style.backgroundColor = '#4CAF50';
-            }
-        };
-        
-    </script>
-    <button id="stt-mic-button" style="
-        background-color: #4CAF50;
-        color: white;
-        padding: 10px 15px;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-weight: bold;
-        width: 100%;
-        transition: background-color 0.3s;
-    ">
-        🎤 Mulai Bicara
-    </button>
-    """
-    # Menjalankan komponen kustom dan menyimpan hasilnya di st.session_state.stt_text
-    html(html_code, height=50, key="stt_html_component")
-    return initial_text
 
 # --- 4. Fungsi-Fungsi Manipulasi Chat (Edit & Hapus) ---
 
@@ -165,8 +61,8 @@ def rebuild_chat_session():
     if "chat_session" in st.session_state:
         del st.session_state.chat_session
         
-    new_chat = st.session_state.gemini_client.chats.create(
-        model="gemini-2.5-flash", 
+    new_chat = st.session_state.client.chats.create(
+        model="gemini-2.5-flash", # Pastikan model ini mendukung multimodal
         config=config
     )
     
@@ -176,13 +72,13 @@ def rebuild_chat_session():
         if msg["text"]:
             parts.append(types.Part(text=msg["text"]))
         if msg["image_data"]:
+            # Jika ada data gambar, tambahkan sebagai part gambar
             parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=base64.b64decode(msg["image_data"]))))
-        
-        # HANYA masukkan teks dari assistant ke history Gemini
-        if parts: 
+
+        if parts: # Pastikan ada konten sebelum append
             if msg["role"] == "user":
                 contents.append(types.Content(role="user", parts=parts))
-            elif msg["role"] == "assistant" and msg["text"]: 
+            elif msg["role"] == "assistant":
                 contents.append(types.Content(role="model", parts=parts))
 
     new_chat._history = contents
@@ -205,11 +101,8 @@ def delete_message(index):
 def edit_message(index, new_text):
     """Mengedit pesan pengguna dan menandai untuk pengiriman ulang."""
     st.session_state.messages[index]["text"] = new_text
+    # Gambar tidak diedit, hanya teks
     
-    # Penghapusan referensi generated_image_url dihapus di sini
-    # if "generated_image_url" in st.session_state.messages[index]:
-    #     st.session_state.messages[index]["generated_image_url"] = None
-
     if index + 1 < len(st.session_state.messages) and st.session_state.messages[index + 1]["role"] == "assistant":
         st.session_state.messages.pop(index + 1)
         
@@ -227,16 +120,13 @@ for i, msg in enumerate(st.session_state.messages):
         role_display = "user" if msg["role"] == "user" else "assistant"
         
         with st.chat_message(role_display):
-            # Tampilkan gambar yang diunggah pengguna jika ada
-            if msg.get("image_data"):
+            # Tampilkan gambar jika ada
+            if msg["image_data"]:
                 display_image_from_base64(msg["image_data"], caption=f"Gambar dari {role_display}")
             
-            # Tampilkan gambar yang di-generate oleh AI jika ada DIHAPUS
-            # if msg["role"] == "assistant" and msg.get("generated_image_url"):
-            #     st.image(msg["generated_image_url"], caption="Gambar dari TBC 🖼️", use_column_width=True)
-            
             # Tampilkan teks
-            if msg.get("text"):
+            if msg["text"]:
+                # Jika itu pesan pengguna, tampilkan tombol Edit dan Hapus
                 if msg["role"] == "user":
                     col1, col2, col3 = st.columns([10, 1, 1])
                     with col1:
@@ -244,18 +134,17 @@ for i, msg in enumerate(st.session_state.messages):
                     with col2:
                         st.button("❌", key=f"del_{i}", help="Hapus pesan ini", on_click=delete_message, args=(i,))
                     with col3:
+                        # Tombol Edit hanya untuk teks, gambar tidak bisa diedit via form ini
                         if st.button("✏️", key=f"edit_btn_{i}", help="Edit pesan ini"):
                             st.session_state.editing_index = i
                             st.rerun() 
                 else:
+                    # Pesan dari bot
                     st.markdown(msg["text"])
             else:
-                # Menangani kasus tanpa teks (hanya gambar upload)
-                if msg.get("image_data") and msg["role"] == "user":
+                # Jika tidak ada teks tapi ada gambar, tambahkan teks default agar tidak kosong
+                if msg["image_data"] and msg["role"] == "user":
                     st.markdown("*Mengirim gambar tanpa teks*")
-                # else: Menghapus penanganan untuk generated_image_url
-                # elif msg.get("generated_image_url") and msg["role"] == "assistant":
-                #     st.markdown("*Gambar dihasilkan tanpa teks pendamping*")
 
 
 # --- 6. Form Edit Pesan (Hanya ditampilkan jika mode edit aktif) ---
@@ -267,12 +156,9 @@ if "editing_index" in st.session_state and st.session_state.editing_index >= 0:
     
     with st.form(key=f"edit_form_{edit_index}"):
         new_text = st.text_area("Teks Baru:", value=current_text, key="edit_text_area")
-        
-        if st.session_state.messages[edit_index].get("image_data"):
+        # Jika ada gambar di pesan yang diedit, tampilkan sebagai referensi
+        if st.session_state.messages[edit_index]["image_data"]:
             display_image_from_base64(st.session_state.messages[edit_index]["image_data"], caption="Gambar asli pesan ini:")
-        # Penghapusan Tampilan Gambar yang Dihasilkan Sebelumnya
-        # if st.session_state.messages[edit_index].get("generated_image_url"):
-        #     st.image(st.session_state.messages[edit_index]["generated_image_url"], caption="Gambar yang dihasilkan sebelumnya:")
 
         col_ok, col_cancel = st.columns([1, 10])
         
@@ -287,114 +173,77 @@ if "editing_index" in st.session_state and st.session_state.editing_index >= 0:
                 del st.session_state.editing_index
                 st.rerun()
 
-# --- 7. Penanganan Input Chat Baru & Gambar (STT, UPLOAD) ---
-# Tambahkan STT component di kolom input
-col_stt, col_text_input, col_image_uploader = st.columns([1, 3, 1])
+# --- 7. Penanganan Input Chat Baru & Gambar ---
+col_text_input, col_image_uploader = st.columns([3, 1])
 
-with col_stt:
-    stt_text = stt_component() # Panggil komponen STT
-    
 with col_text_input:
-    # Gunakan teks dari STT sebagai nilai awal jika ada
-    initial_prompt_value = stt_text if stt_text else ""
-    # st.session_state.stt_text harus direset setelah digunakan
-    if 'stt_text' in st.session_state and st.session_state.stt_text:
-        # PENTING: Jika STT memberikan hasil, pindahkan hasil ke chat_input
-        # dan jangan langsung memicu chat_input (yang sudah dipicu oleh stt_component)
-        prompt = st.chat_input("Tanyakan sesuatu...", 
-                                key="main_chat_input", 
-                                value=initial_prompt_value)
-        # Hapus stt_text setelah prompt ditampilkan
-        del st.session_state.stt_text 
-    else:
-         prompt = st.chat_input("Tanyakan sesuatu...", 
-                                key="main_chat_input")
-
+    prompt = st.chat_input("Tanyakan sesuatu...", key="main_chat_input")
 
 with col_image_uploader:
     uploaded_image = st.file_uploader("Upload Gambar", type=["jpg", "jpeg", "png"], key="image_uploader")
 
-# Cek apakah ada input (baik dari teks manual, STT, atau gambar upload)
-if prompt or uploaded_image or (stt_text and st.session_state.get('stt_text_used') is not True):
+if prompt or uploaded_image:
     
-    # Ambil teks dari prompt atau STT jika baru saja dipicu oleh STT
-    user_message_text = prompt if prompt else stt_text
-    
-    # Cek apakah ini dipicu oleh hasil STT baru yang belum diolah
-    is_stt_triggered = (stt_text and st.session_state.get('stt_text_used') is not True)
-    
-    if is_stt_triggered:
-        # Tandai STT sudah digunakan agar tidak terpicu lagi di run berikutnya
-        st.session_state.stt_text_used = True 
-        
+    user_message_text = prompt if prompt else ""
     user_image_data_base64 = get_image_as_base64(uploaded_image)
     
-    # Lanjutkan hanya jika ada konten (teks dari prompt/STT atau gambar upload)
-    if user_message_text or user_image_data_base64:
-
-        # LOGIKA PENGECUALIAN GENERATE GAMBAR DIHAPUS
-        
-        # Tambahkan prompt pengguna dan/atau gambar ke riwayat lokal
-        st.session_state.messages.append({
-            "role": "user", 
-            "text": user_message_text, 
-            "image_data": user_image_data_base64,
-            # "generated_image_url": None DIHAPUS
-        })
-        
-        # Tampilkan prompt pengguna segera
-        with st.chat_message("user"):
-            if user_image_data_base64:
-                display_image_from_base64(user_image_data_base64, caption="Gambar Anda")
-            if user_message_text:
-                st.markdown(user_message_text)
-            elif not user_message_text and user_image_data_base64:
-                st.markdown("*Mengirim gambar tanpa teks*")
-
-
-        # --- LOGIKA GENERATE GAMBAR DIHAPUS ---
-        # if should_generate_image: ... else:
-        
-        # --- LOGIKA CHAT BIASA (KIRIM KE GEMINI) ---
-        parts_to_send = []
-        if user_message_text:
-            parts_to_send.append(types.Part(text=user_message_text))
+    # Tambahkan prompt pengguna dan/atau gambar ke riwayat lokal
+    st.session_state.messages.append({
+        "role": "user", 
+        "text": user_message_text, 
+        "image_data": user_image_data_base64
+    })
+    
+    # Tampilkan prompt pengguna segera
+    with st.chat_message("user"):
         if user_image_data_base64:
-            parts_to_send.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=base64.b64decode(user_image_data_base64))))
-        
-        if parts_to_send:
-            try:
-                with st.spinner("🤖 TBC sedang menganalisis..."):
-                    response = st.session_state.chat_session.send_message(parts_to_send)
-                    response_text = response.parts[0].text
+            display_image_from_base64(user_image_data_base64, caption="Gambar Anda")
+        if user_message_text:
+            st.markdown(user_message_text)
+        elif not user_message_text and user_image_data_base64:
+            st.markdown("*Mengirim gambar tanpa teks*")
+
+
+    # Siapkan konten untuk dikirim ke Gemini
+    parts_to_send = []
+    if user_message_text:
+        parts_to_send.append(types.Part(text=user_message_text))
+    if user_image_data_base64:
+        parts_to_send.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=base64.b64decode(user_image_data_base64))))
+    
+    # Hanya kirim jika ada teks atau gambar
+    if parts_to_send:
+        try:
+            with st.spinner("🤖 TBC sedang menganalisis..."):
+                response = st.session_state.chat_session.send_message(parts_to_send)
+                response_text = response.parts[0].text # Gemini biasanya merespons dengan teks
+                
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "text": response_text, 
+                    "image_data": None # Asumsi Gemini hanya merespons teks
+                })
+                
+                with st.chat_message("assistant"):
+                    st.markdown(response_text)
                     
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "text": response_text, 
-                        "image_data": None,
-                        # "generated_image_url": None DIHAPUS
-                    })
-                    
-                    with st.chat_message("assistant"):
-                        st.markdown(response_text)
-                        
-            except Exception as e:
-                st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
-                if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-                    st.session_state.messages.pop() 
-        else:
+        except Exception as e:
+            st.error(f"Terjadi kesalahan saat mengirim pesan ke Gemini: {e}")
             if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-                st.session_state.messages.pop()
-            st.warning("Mohon masukkan teks atau unggah gambar.")
+                st.session_state.messages.pop() 
+    else:
+        # Jika tidak ada prompt dan tidak ada gambar yang diunggah
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            st.session_state.messages.pop()
+        st.warning("Mohon masukkan teks atau unggah gambar.")
 
 # --- 8. Blok Pengiriman Ulang Otomatis Setelah Edit (SOLUSI RESPONS) ---
 if "resend_last_message" in st.session_state and st.session_state.resend_last_message:
     
     st.session_state.resend_last_message = False 
     
+    # Pesan terakhir di riwayat lokal adalah pesan yang baru saja diedit/dikoreksi
     last_user_msg = st.session_state.messages[-1]
-    
-    # LOGIKA PENGECUALIAN GENERATE GAMBAR DIHAPUS DARI SINI
     
     parts_to_resend = []
     if last_user_msg["text"]:
@@ -410,8 +259,7 @@ if "resend_last_message" in st.session_state and st.session_state.resend_last_me
             st.session_state.messages.append({
                 "role": "assistant", 
                 "text": response_text, 
-                "image_data": None,
-                # "generated_image_url": None DIHAPUS
+                "image_data": None # Asumsi Gemini hanya merespons teks
             })
             
             with st.chat_message("assistant"):
@@ -423,17 +271,15 @@ if "resend_last_message" in st.session_state and st.session_state.resend_last_me
             st.session_state.messages.pop()
     
     st.rerun()
-    
+
 # --- 9. Informasi Samping (Sidebar Opsional) ---
 with st.sidebar:
     st.subheader("Petunjuk Interaksi")
     st.info(
-        "TBC kini hanya berfokus pada chat berbasis teks dan gambar (Multimodal) dengan fitur Speech-to-Text."
-        "\n\nTombol 🎤 **Mulai Bicara** tersedia untuk mengirim pesan via suara."
-        "\n\nTombol ❌ akan menghapus pesan Anda dan balasan bot."
+        "TBC memiliki kepribadian yang ramah dan santai. "
+        "Tombol ❌ akan menghapus pesan Anda dan balasan bot."
         "\n\nTombol ✏️ akan memunculkan kotak edit (hanya teks) dan TBC akan **otomatis** merespons pesan yang diedit."
+        "\n\nAnda sekarang bisa **mengunggah gambar**! TBC akan mencoba menganalisisnya."
     )
     st.markdown("---")
-    st.markdown("Model Chat & Analisis Gambar: **`gemini-2.5-flash` (Multimodal)**")
-    st.markdown("Fitur Generate Gambar: **DIHILANGKAN**")
-    st.markdown("Speech-to-Text: **Web Speech API (`id-ID`)**")
+    st.markdown("Model: **`gemini-2.5-flash` (Multimodal)**")
