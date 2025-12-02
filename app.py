@@ -67,18 +67,19 @@ def stt_component():
     # Ambil teks dari session state jika sudah ada
     initial_text = st.session_state.get('stt_text', '')
 
-    html_code = f"""
+    # MENGGANTI F-STRING DENGAN MULTI-LINE STRING BIASA UNTUK MENGHINDARI POTENSI MASALAH TYPEERROR PADA LINGKUNGAN TERTENTU.
+    html_code = """
     <script>
         const stt_button = document.getElementById('stt-mic-button');
         const stt_result = document.getElementById('stt-result');
 
         // Cek apakah Web Speech API didukung
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {{
+        if (!SpeechRecognition) {
             stt_button.innerHTML = '🎤 STT Tidak Didukung';
             stt_button.disabled = true;
             return;
-        }}
+        }
 
         const recognition = new SpeechRecognition();
         recognition.continuous = false; // Hanya sekali rekam
@@ -86,52 +87,52 @@ def stt_component():
 
         let isRecording = false;
 
-        stt_button.onclick = () => {{
-            if (isRecording) {{
+        stt_button.onclick = () => {
+            if (isRecording) {
                 recognition.stop();
                 isRecording = false;
                 stt_button.innerHTML = '🎤 Mulai Bicara';
                 stt_button.style.backgroundColor = '#4CAF50';
-            }} else {{
+            } else {
                 recognition.start();
                 isRecording = true;
                 stt_button.innerHTML = '🔴 Sedang Merekam...';
                 stt_button.style.backgroundColor = '#FF0000';
-            }}
-        }};
+            }
+        };
 
-        recognition.onresult = (event) => {{
+        recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             // Kirim hasil transcript kembali ke Streamlit
-            if (window.parent) {{
-                window.parent.postMessage({{
-                    streamlit: {{
+            if (window.parent) {
+                window.parent.postMessage({
+                    streamlit: {
                         isStreamlit: true,
                         type: "SET_VALUE",
                         value: transcript,
                         id: "stt_text",
-                    }}
-                }}, "*");
-            }}
+                    }
+                }, "*");
+            }
             stt_button.innerHTML = '🎤 Mulai Bicara';
             stt_button.style.backgroundColor = '#4CAF50';
             isRecording = false;
-        }};
+        };
 
-        recognition.onerror = (event) => {{
+        recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
             stt_button.innerHTML = '🎤 Error! Coba Lagi';
             stt_button.style.backgroundColor = '#FF9800';
             isRecording = false;
-        }};
+        };
         
-        recognition.onend = () => {{
-            if (isRecording) {{
+        recognition.onend = () => {
+            if (isRecording) {
                 isRecording = false;
                 stt_button.innerHTML = '🎤 Mulai Bicara';
                 stt_button.style.backgroundColor = '#4CAF50';
-            }}
-        }};
+            }
+        };
         
     </script>
     <button id="stt-mic-button" style="
